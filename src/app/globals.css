@@ -1,26 +1,85 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  --font-sans: var(--font-plex-sans), system-ui, sans-serif;
+  --font-serif: var(--font-source-serif), Georgia, serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-ink: #1a1d21;
+  --color-prose: #2a2f35;
+  --color-body-2: #3d434a;
+  --color-body-3: #4a5058;
+  --color-muted: #80878f;
+  --color-muted-2: #646b73;
+  --color-muted-3: #9aa0a8;
+  --color-faint: #b0aba4;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --color-navy: #10202e;
+  --color-navy-hover: #1b3448;
+  --color-navy-deep: #0d1a26;
+  --color-blue: #245C86;
+  --color-blue-hover: #1c4b6e;
+  --color-blue-dark: #1d4f75;
+  --color-blue-tint: #e8f0f7;
+  --color-blue-wash: #eef3f7;
+  --color-focus: #e2ecf4;
+  --color-row-hover: #f6f9fb;
+
+  --color-green: #2E6B4F;
+  --color-amber: #8F6A1E;
+  --color-amber-dot: #B07A18;
+  --color-red: #9B3E35;
+  --color-defendant: #8a8378;
+
+  --color-paper: #f7f6f3;
+  --color-panel: #fbfaf8;
+  --color-sand: #f3f1ed;
+  --color-seg: #ecebe7;
+  --color-line: #e7e4df;
+  --color-line-2: #eeebe6;
+  --color-line-3: #f1efeb;
+  --color-line-4: #f3f1ed;
+  --color-field: #d6d2cc;
+  --color-chip: #dcd8d2;
+  --color-toggle-off: #cfcbc4;
+
+  --animate-spin-fast: vl-spin 0.8s linear infinite;
+
+  @keyframes vl-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Base styles live in the base layer so Tailwind utilities can override them. */
+@layer base {
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    /* The design sets type with the CSS `font` shorthand, which resets line-height. */
+    line-height: normal;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a {
+    color: var(--color-blue);
+    text-decoration: none;
+  }
+
+  a:hover {
+    color: #163d5c;
+    text-decoration: underline;
+  }
+
+  button {
+    cursor: pointer;
+  }
 }
