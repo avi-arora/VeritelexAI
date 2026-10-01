@@ -1,36 +1,34 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VeriteLex AI
 
-## Getting Started
+Bench-side case analysis for DIFC Courts judges — chronology, issues, submissions, grounding and a multi-model council. Implemented from the Claude Design prototype `VeriteLexAI v3.dc.html`.
 
-First, run the development server:
+**Stack:** Next.js 16 (App Router, Turbopack) · React 19 · TypeScript · Tailwind CSS v4
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev     # http://localhost:3000
+npm run build   # production build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Routes
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Path | Screen |
+| --- | --- |
+| `/login` | Sign-in and one-time code |
+| `/cases` | Case list with search, scope and status filters |
+| `/upload?step=1..3` | New case from documents (3-step wizard) |
+| `/cases/[caseId]/[section]` | Case report — `background`, `matrix`, `mapping`, `issues`, `subs?issue=n`, `tools`, `gaps`, `council`, `ask`, `questions`, `docs` |
+| `/settings/[tab]` | `connectors`, `council`, `policy` |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Layout
 
-## Learn More
+- `src/lib/data.ts` — all demo content (the CFI-114/2026 report, models, connectors). Swap for API calls when a backend exists.
+- `src/lib/store.tsx` — client state shared across pages: enabled models, connectors, grounding policy, the simulated new-case pipeline, toast, export dialog, bench-note pins.
+- `src/components/` — screens; `report/` holds one component per report section; `ui.tsx` holds shared primitives.
 
-To learn more about Next.js, take a look at the following resources:
+## Prototype behaviour kept as-is
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Every "Open report" link opens the CFI-114/2026 report — it is the only report in the demo data.
+- Model answers, council runs and the processing pipeline are simulated client-side.
+- The dark "Prototype · Jump to" bar is rendered from `src/components/proto-nav.tsx`; remove it from `src/app/layout.tsx` for production.
+# VeritelexAI
