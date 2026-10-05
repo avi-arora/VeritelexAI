@@ -25,7 +25,7 @@ export function Spinner({ className }: { className?: string }) {
   return (
     <span
       aria-hidden
-      className={cx("inline-block size-3.5 flex-none animate-spin-fast rounded-full border-2 border-current border-r-transparent", className)}
+      className={cx("inline-block size-3.5 flex-none animate-spin-fast rounded-full border-2 border-current border-r-transparent motion-reduce:[animation-duration:6s]", className)}
     />
   );
 }
@@ -110,15 +110,21 @@ export function Chip({ on, onClick, className, children }: { on: boolean; onClic
   );
 }
 
-export function Switch({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
+/** On/off switch. `disabled` uses aria-disabled so the switch stays focusable and its onClick can explain why. */
+export function Switch({ on, onClick, label, disabled }: { on: boolean; onClick: () => void; label: string; disabled?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
       aria-label={label}
+      aria-disabled={disabled || undefined}
       onClick={onClick}
-      className={cx("flex h-[26px] w-11 flex-none rounded-[13px] p-[3px] transition-colors", on ? "justify-end bg-blue" : "justify-start bg-toggle-off")}
+      className={cx(
+        "flex h-[26px] w-11 flex-none rounded-[13px] p-[3px] transition-colors",
+        on ? "justify-end bg-blue" : "justify-start bg-toggle-off",
+        disabled && "cursor-not-allowed opacity-50",
+      )}
     >
       <span className="size-5 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,.2)]" />
     </button>

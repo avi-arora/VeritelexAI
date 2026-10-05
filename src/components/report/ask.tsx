@@ -1,236 +1,354 @@
 "use client";
 
-import { useState } from "react";
-import { CITE_ST, MODELS, PRESETS, type Answer, type ModelId } from "@/lib/data";
+import { useRef, useState, type FormEvent } from "react";
+import { api, isStatus, usePoll, type AskMode, type AskRequest, type AskSummary, type AskView as AskViewData } from "@/lib/api";
+import { fmtDateTime } from "@/lib/format";
 import { useStore } from "@/lib/store";
-import { Button, DashList, Dot, Monogram, Segmented, Spinner, card, cx } from "../ui";
-import { useCouncilRun } from "./council";
+import { Badge, Button, Segmented, card, cx } from "../ui";
+import { Loading, useCase, useReport, useRuns } from "./case-context";
+import { AskView, MODE_LABEL, askStatus } from "./ask-view";
+import { MemberMono } from "./council-ui";
 
-type Mode = "independent" | "debate" | "steel";
-type Scope = "record" | "issue" | "docs";
+const MIN_Q = 5;
+const MAX_Q = 2000;
+/** Poll a running ask every 2.5 s (contract: every 2 to 3 s). */
+const ASK_POLL_MS = 2500;
 
-const MODES = [
-  { k: "independent", label: "Independent answers" },
-  { k: "debate", label: "Debate · models review each other" },
-  { k: "steel", label: "Strongest case for each side" },
-] as const;
-
-const SCOPES: { k: Scope; label: string }[] = [
-  { k: "record", label: "Whole record and connectors" },
-  { k: "issue", label: "Issue 3 papers only" },
-  { k: "docs", label: "Selected documents" },
+const MODES: { k: AskMode; label: string; hint: string }[] = [
+  { k: "independent", label: "Independent", hint: "Each model answers on its own, without seeing the others." },
+  { k: "debate", label: "Debate", hint: "The models review each other’s answers, then revise their own." },
+  { k: "steelman", label: "Steel-man", hint: "The strongest case for each side, each point tied to the record." },
 ];
 
+type Keyed<T> = { key: string; res?: T; err?: Error };
+
+/** Ask the council: the question form, the selected question's answers (polled while running) and earlier questions. */
 export function AskCouncil() {
-  const { enabledIds: ids, nm } = useStore();
-  const [preset, setPreset] = useState(0);
-  const [text, setText] = useState(PRESETS[0].q);
-  const [mode, setMode] = useState<Mode>("independent");
-  const [scope, setScope] = useState<Scope>("record");
-  const [running, run] = useCouncilRun();
+  const { caseId } = useCase();
+  const [sel, setSel] = useState<{ caseId: string; id: string } | null>(null);
+  // The POST response, shown until the first poll of that ask returns.
+  const [posted, setPosted] = useState<AskViewData | null>(null);
+  const selId = sel?.caseId === caseId ? sel.id : null;
 
-  const PR = PRESETS[preset];
-  const n = ids.length;
-  const pick = (i: number) => {
-    setPreset(i);
-    setText(PRESETS[i].q);
+  const history = usePoll(() => api.asks(caseId), (list) => (list?.some((a) => a.status === "running") ? 5000 : null), [caseId]);
+
+  // Results are keyed by ask id, so switching asks never shows the previous one's answers.
+  // The last good result is kept (outside render) so a failed refresh does not blank the answers.
+  const lastGood = useRef<{ key: string; res: AskViewData } | null>(null);
+  const { data: polled } = usePoll<Keyed<AskViewData>>(
+    selId
+      ? async () => {
+          try {
+            const res = await api.getAsk(caseId, selId);
+            lastGood.current = { key: selId, res };
+            return { key: selId, res };
+          } catch (e) {
+            const keep = lastGood.current?.key === selId ? lastGood.current.res : undefined;
+            return { key: selId, res: keep, err: e as Error };
+          }
+        }
+      : null,
+    (d) => {
+      if (!d || d.key !== selId) return null;
+      if (d.err) return isStatus(d.err, 404) ? null : 5000;
+      return d.res?.status === "running" ? ASK_POLL_MS : null;
+    },
+    [caseId, selId],
+  );
+  const cur = polled?.key === selId ? polled : undefined;
+  const view = cur?.res ?? (posted && posted.id === selId ? posted : undefined);
+
+  const ask = async (body: AskRequest) => {
+    const v = await api.createAsk(caseId, body);
+    setPosted(v);
+    setSel({ caseId, id: v.id });
+    history.refresh();
   };
-
-  const synth = PR.synth(ids, nm);
-  const synthesis = [
-    { t: "Where they agree", c: "#2E6B4F", items: synth.agree },
-    { t: "Where they differ", c: "#B07A18", items: synth.differ.length ? synth.differ : ["No material difference between the enabled models."] },
-    { t: "Left out", c: "#9B3E35", items: synth.out.length ? synth.out : ["All citations were verified against a connected source."] },
-  ];
-  const review = PR.review.filter((x) => ids.includes(x.from) && ids.includes(x.to));
 
   return (
     <div className="flex flex-col gap-[18px]">
-      <div className={cx(card, "flex flex-col gap-4 px-6 py-[22px]")}>
-        <label htmlFor="ask-q" className="text-sm font-semibold text-ink">Your question about this case</label>
-        <textarea
-          id="ask-q"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={3}
-          className="w-full resize-y rounded-[10px] border border-field bg-white px-4 py-3.5 font-serif text-base leading-[1.55] text-ink focus:border-blue focus:shadow-[0_0_0_3px_var(--color-focus)] focus:outline-none"
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[12.5px] font-medium text-muted">Suggested</span>
-          {PRESETS.map((p, i) => {
-            const on = preset === i;
-            return (
-              <button
-                key={p.label}
-                type="button"
-                aria-pressed={on}
-                onClick={() => pick(i)}
-                className="h-8 rounded-2xl border px-3 text-[12.5px] font-medium whitespace-nowrap"
-                style={{ borderColor: on ? "#bcd2e4" : "#dcd8d2", background: on ? "#e8f0f7" : "#fff", color: on ? "#245C86" : "#3d434a" }}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-        <div className="flex flex-wrap items-end gap-6 border-t border-line-3 pt-3.5">
-          <div className="flex flex-col gap-2">
-            <span className="text-[12.5px] font-medium text-muted">Draw on</span>
-            <div className="flex flex-wrap gap-1.5">
-              {SCOPES.map((s) => {
-                const on = scope === s.k;
-                return (
-                  <button
-                    key={s.k}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => setScope(s.k)}
-                    className={cx("h-[34px] rounded-lg border px-3 text-[13px] font-medium", on ? "border-navy bg-navy text-white" : "border-chip bg-white text-body-2")}
-                  >
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <span className="text-[12.5px] font-medium text-muted">How the council answers</span>
-            <Segmented options={MODES} value={mode} onChange={setMode} itemClassName="h-8 px-3 text-[13px]" />
-          </div>
-          <Button variant="accent" className="ml-auto h-[42px] px-[22px] text-sm" onClick={run} disabled={running}>
-            Ask {n} models
-          </Button>
-        </div>
-      </div>
+      <AskForm onAsk={ask} />
 
-      {running ? (
-        <div className={cx(card, "flex items-center gap-3 p-7 text-blue")}>
-          <Spinner />
-          <span className="text-[14.5px] font-medium">The council is answering — {n} models working independently…</span>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5 px-0.5 py-1">
-            <span className="text-[12.5px] font-medium text-muted">
-              {MODES.find((m) => m.k === mode)!.label} · {SCOPES.find((s) => s.k === scope)!.label} · {n} models
-            </span>
-            <span className="font-serif text-lg leading-normal text-ink">{text.trim() || PR.q}</span>
-          </div>
-
-          {mode === "steel" ? (
-            <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
-              {[
-                { t: "Strongest case for the Claimant", c: "#245C86", items: PR.steel.c },
-                { t: "Strongest case for the Defendant", c: "#8a8378", items: PR.steel.d },
-              ].map((col) => (
-                <div key={col.t} className={cx(card, "flex flex-col gap-3.5 border-t-[3px] px-6 py-[22px]")} style={{ borderTopColor: col.c }}>
-                  <span className="font-serif text-base font-semibold">{col.t}</span>
-                  <DashList items={col.items} />
-                  <span className="mt-auto text-[12.5px] text-muted">Combined from {ids.map(nm).join(", ")}. Each point cites the record.</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto pb-1">
-                <div
-                  className="grid gap-3.5"
-                  style={{ gridTemplateColumns: n <= 3 ? `repeat(${n}, minmax(0,1fr))` : `repeat(${n}, minmax(300px,1fr))` }}
-                >
-                  {ids.map((id) => (
-                    <AnswerCard key={id} id={id} name={nm(id)} answer={PR.answers[id]} />
-                  ))}
-                </div>
-              </div>
-
-              {mode === "debate" && (
-                <div className={cx(card, "flex flex-col gap-3.5 px-6 py-[22px]")}>
-                  <span className="font-serif text-base font-semibold">Review round — the models check each other</span>
-                  {review.map((r) => (
-                    <div key={r.from + r.to + r.t} className="grid grid-cols-[240px_minmax(0,1fr)] gap-4 border-b border-line-4 pb-3 max-sm:grid-cols-1">
-                      <span className="text-[13.5px] font-semibold text-ink">
-                        {nm(r.from)} <span className="font-normal text-muted">{r.self ? "revises its answer" : `on ${nm(r.to)}`}</span>
-                      </span>
-                      <span className="text-sm leading-[1.6] text-body-2">{r.t}</span>
-                    </div>
-                  ))}
-                  <span className="text-sm leading-[1.6] font-medium text-[#24543e]">{PR.outcome}</span>
-                </div>
-              )}
-
-              <div className={cx(card, "grid grid-cols-3 gap-6 px-[26px] py-6 max-md:grid-cols-1")}>
-                {synthesis.map((s) => (
-                  <div key={s.t} className="flex flex-col gap-2.5">
-                    <div className="flex items-center gap-2">
-                      <Dot color={s.c} />
-                      <span className="text-[14.5px] font-semibold">{s.t}</span>
-                    </div>
-                    {s.items.map((it) => (
-                      <p key={it} className="m-0 text-sm leading-[1.6] text-body-2">{it}</p>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </>
+      {selId && (
+        <div className="flex flex-col gap-2">
+          {view ? <AskView view={view} /> : cur?.err ? null : <Loading label="Opening the question…" />}
+          {cur?.err && (
+            <p role="alert" className="m-0 text-sm text-red">
+              {isStatus(cur.err, 404) ? "This question could not be found." : `Could not refresh the answers: ${cur.err.message}. Retrying…`}
+            </p>
           )}
         </div>
       )}
 
-      <div className={cx(card, "overflow-hidden")}>
-        <div className="border-b border-line-2 px-6 py-4">
-          <span className="font-serif text-[15px] font-semibold">Earlier questions on this case</span>
-        </div>
-        {PRESETS.map((p, i) => (
-          <button
-            key={p.q}
-            type="button"
-            onClick={() => pick(i)}
-            className="grid w-full grid-cols-[minmax(0,1fr)_150px_120px] items-center gap-4 border-b border-line-4 bg-white px-6 py-3.5 text-left hover:bg-row-hover max-sm:grid-cols-1"
-          >
-            <span className="font-serif text-[14.5px] leading-normal text-ink">{p.q}</span>
-            <span className="text-[13px] text-muted">{p.mode}</span>
-            <span className="text-right text-[13px] text-muted max-sm:text-left">{p.when}</span>
-          </button>
-        ))}
-      </div>
+      <History list={history.data} error={history.error} selectedId={selId} onOpen={(id) => setSel({ caseId, id })} />
     </div>
   );
 }
 
-function AnswerCard({ id, name, answer }: { id: ModelId; name: string; answer: Answer }) {
-  const m = MODELS.find((x) => x.id === id)!;
+function askErrorMessage(e: unknown) {
+  const msg = (e as Error).message;
+  if (isStatus(e, 409)) return msg && msg !== "Conflict" ? msg : "There is no report version to ground the question on yet.";
+  if (isStatus(e, 429)) return "Three questions are already running for this case. Wait for one to finish, then ask again.";
+  if (isStatus(e, 422)) return `The question was not accepted${msg && msg !== "Unprocessable Entity" ? `: ${msg}` : ". Check its length and scope."}`;
+  return `Could not ask the council: ${msg}`;
+}
+
+const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+
+function AskForm({ onAsk }: { onAsk: (body: AskRequest) => Promise<void> }) {
+  const { c, selectedRunId } = useCase();
+  const { viewed, published } = useRuns();
+  const { members, askIds, council, nm } = useStore();
+  const { data: issuesData } = useReport("issues");
+  const issues = issuesData?.issues ?? [];
+
+  const [text, setText] = useState("");
+  const [mode, setMode] = useState<AskMode>("independent");
+  const [scopeKind, setScopeKind] = useState<"record" | "issue">("record");
+  const [issuePick, setIssuePick] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  // The picked issue, or the first one when the pick is not part of this version.
+  const issueN = scopeKind === "issue" ? (issues.some((i) => i.n === issuePick) ? issuePick : (issues[0]?.n ?? null)) : null;
+  const trimmed = text.trim();
+  const excluded = members.filter((m) => !askIds.includes(m.id));
+  const noMembers = !!council && askIds.length === 0;
+  const noReport = !c?.reportReadyAt && !published;
+  const canAsk = !busy && trimmed.length >= MIN_Q && trimmed.length <= MAX_Q && !noMembers && !noReport && (scopeKind === "record" || issueN != null);
+  const n = council ? askIds.length : 0;
+
+  const focus = scopeKind === "issue" ? issues.filter((i) => i.n === issueN) : issues.slice(0, 2);
+  const chips = focus.flatMap((i) => [
+    { q: `Which authorities govern Issue ${i.n} (${short(i.topic, 60)})?` },
+    { q: `Which documents would resolve the disputed facts in Issue ${i.n}?` },
+    { q: `What is the strongest case for each side on Issue ${i.n}?`, mode: "steelman" as const },
+  ]);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!canAsk) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await onAsk({
+        question: trimmed,
+        mode,
+        scope: scopeKind === "issue" ? { kind: "issue", issue: issueN } : { kind: "record", issue: null },
+        // Without the live member list, let the backend ask every configured member.
+        ...(council ? { members: askIds } : {}),
+        // Omitted for the published version.
+        ...(selectedRunId ? { runId: selectedRunId } : {}),
+      });
+    } catch (e2) {
+      setErr(askErrorMessage(e2));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className={cx(card, "flex min-w-0 flex-col")}>
-      <div className="flex items-center gap-3 border-b border-line-2 px-[18px] py-4">
-        <Monogram m={m.m} c={m.c} size={34} />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="text-[14.5px] font-semibold">{name}</span>
-          <span className="truncate text-xs text-muted">{m.host}</span>
+    <form onSubmit={submit} className={cx(card, "flex flex-col gap-4 px-6 py-[22px]")} noValidate>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <label htmlFor="ask-q" className="text-sm font-semibold text-ink">
+          Your question about this case
+        </label>
+        <span id="ask-q-count" className={cx("text-xs", trimmed.length > 0 && trimmed.length < MIN_Q ? "text-amber" : "text-muted")}>
+          {text.length} / {MAX_Q}
+          {trimmed.length > 0 && trimmed.length < MIN_Q ? ` · at least ${MIN_Q} characters` : ""}
+        </span>
+      </div>
+      <textarea
+        id="ask-q"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            e.currentTarget.form?.requestSubmit();
+          }
+        }}
+        rows={3}
+        maxLength={MAX_Q}
+        aria-describedby="ask-q-count"
+        placeholder="For example: does the notice of 14 March satisfy clause 20.1?"
+        className="w-full resize-y rounded-[10px] border border-field bg-white px-4 py-3.5 font-serif text-base leading-[1.55] text-ink focus:border-blue focus:shadow-[0_0_0_3px_var(--color-focus)] focus:outline-none"
+      />
+
+      {chips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[12.5px] font-medium text-muted">Suggested</span>
+          {chips.map((ch) => {
+            const on = text === ch.q;
+            return (
+              <button
+                key={ch.q}
+                type="button"
+                aria-pressed={on}
+                onClick={() => {
+                  setText(ch.q);
+                  if (ch.mode) setMode(ch.mode);
+                }}
+                className="min-h-8 rounded-2xl border px-3 py-1 text-left text-[12.5px] font-medium"
+                style={{ borderColor: on ? "#bcd2e4" : "#dcd8d2", background: on ? "#e8f0f7" : "#fff", color: on ? "#245C86" : "#3d434a" }}
+              >
+                {ch.q}
+              </button>
+            );
+          })}
         </div>
-        <span className="font-mono text-xs text-muted-3">{answer.time}</span>
+      )}
+
+      <div className="flex flex-wrap items-end gap-6 border-t border-line-3 pt-3.5">
+        <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+          <legend className="mb-2 p-0 text-[12.5px] font-medium text-muted">Draw on</legend>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                { k: "record", label: "Whole record" },
+                { k: "issue", label: "One issue" },
+              ] as const
+            ).map((s) => {
+              const on = scopeKind === s.k;
+              const disabled = s.k === "issue" && issues.length === 0;
+              return (
+                <button
+                  key={s.k}
+                  type="button"
+                  aria-pressed={on}
+                  disabled={disabled}
+                  onClick={() => setScopeKind(s.k)}
+                  className={cx(
+                    "h-[34px] rounded-lg border px-3 text-[13px] font-medium disabled:cursor-not-allowed disabled:opacity-50",
+                    on ? "border-navy bg-navy text-white" : "border-chip bg-white text-body-2",
+                  )}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+            {scopeKind === "issue" && issues.length > 0 && (
+              <select
+                aria-label="Issue"
+                value={issueN ?? ""}
+                onChange={(e) => setIssuePick(Number(e.target.value))}
+                className="h-[34px] max-w-[320px] rounded-lg border border-field bg-white px-2.5 text-[13px] text-ink focus:border-blue focus:outline-none"
+              >
+                {issues.map((i) => (
+                  <option key={i.n} value={i.n}>
+                    Issue {i.n} · {short(i.topic, 48)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </fieldset>
+        <div role="group" aria-labelledby="ask-mode-label" className="flex flex-col gap-2">
+          <span id="ask-mode-label" className="text-[12.5px] font-medium text-muted">
+            How the council answers
+          </span>
+          <Segmented options={MODES} value={mode} onChange={setMode} itemClassName="h-8 px-3 text-[13px]" />
+        </div>
+        <Button type="submit" variant="accent" className="ml-auto h-[42px] px-[22px] text-sm disabled:cursor-not-allowed disabled:opacity-60" disabled={!canAsk}>
+          {busy ? "Asking…" : n ? `Ask ${n} ${n === 1 ? "model" : "models"}` : "Ask the council"}
+        </Button>
       </div>
-      <div className="flex flex-1 flex-col gap-3 p-[18px]">
-        {answer.paras.map((p) => (
-          <p key={p} className="m-0 font-serif text-[14.5px] leading-[1.65] text-prose">{p}</p>
-        ))}
-      </div>
-      <div className="flex flex-col gap-[9px] border-t border-line-3 px-[18px] py-3.5">
-        <span className="text-xs font-medium text-muted">Citations</span>
-        {answer.cites.map((ct) => {
-          const s = CITE_ST[ct.st];
-          return (
-            <div key={ct.t} className="flex items-start gap-[9px]">
-              <span className="mt-px flex size-[18px] flex-none items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ background: s.bg }}>
-                {s.icon}
+      <p className="m-0 -mt-1 text-[12.5px] text-muted">{MODES.find((m) => m.k === mode)?.hint}</p>
+
+      <div className="flex flex-col gap-1.5 text-[12.5px] text-muted">
+        {council ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">Asking</span>
+            {askIds.map((id) => (
+              <span key={id} className="flex items-center gap-1.5 rounded-md bg-sand py-0.5 pr-2 pl-0.5 text-body-2">
+                <MemberMono id={id} size={18} />
+                {nm(id)}
               </span>
-              <div className="flex min-w-0 flex-col gap-px">
-                <span className="text-[13px] leading-[1.4] font-medium text-ink">{ct.t}</span>
-                <span className="text-xs" style={{ color: s.noteFg }}>{ct.note}</span>
-              </div>
-            </div>
+            ))}
+            {excluded.length > 0 && (
+              <span>
+                · Not asked:{" "}
+                {excluded.map((m) => `${nm(m.id)} (${m.status === "unavailable" ? "not enabled in Model Garden" : "switched off in Settings"})`).join(", ")}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span>Every configured model will be asked.</span>
+        )}
+        {selectedRunId && viewed && <span>Answers will be grounded on version {viewed.version}, the version you are viewing.</span>}
+      </div>
+
+      {noMembers && <p className="m-0 text-sm text-amber">Switch on at least one available model in Settings to ask the council.</p>}
+      {noReport && <p className="m-0 text-sm text-amber">The council can be asked once the analysis has produced a report.</p>}
+      {err && (
+        <p role="alert" className="m-0 text-sm text-red">
+          {err}
+        </p>
+      )}
+    </form>
+  );
+}
+
+function History({ list, error, selectedId, onOpen }: { list?: AskSummary[]; error: Error | null; selectedId: string | null; onOpen: (id: string) => void }) {
+  let body;
+  if (list) {
+    body = list.length ? (
+      <ul role="list" className="m-0 list-none p-0">
+        {list.map((a) => {
+          const st = askStatus(a.status);
+          const on = a.id === selectedId;
+          return (
+            <li key={a.id}>
+              <button
+                type="button"
+                aria-current={on ? "true" : undefined}
+                onClick={() => onOpen(a.id)}
+                className={cx(
+                  "grid w-full grid-cols-[minmax(0,1fr)_170px_150px] items-center gap-4 border-b border-line-4 px-6 py-3.5 text-left hover:bg-row-hover max-sm:grid-cols-1",
+                  on ? "bg-blue-tint/60" : "bg-white",
+                )}
+              >
+                <span className="flex min-w-0 flex-col gap-1">
+                  <span className="line-clamp-2 font-serif text-[14.5px] leading-normal text-ink">{a.question}</span>
+                  <span className="text-xs text-muted">
+                    {a.scope.label}
+                    {a.version != null ? ` · on version ${a.version}` : ""}
+                  </span>
+                </span>
+                <span className="flex flex-col items-start gap-1 text-[13px] text-muted">
+                  {MODE_LABEL[a.mode]}
+                  <Badge tone={st.tone}>{st.label}</Badge>
+                </span>
+                <span className="text-right text-[13px] text-muted max-sm:text-left">{fmtDateTime(a.createdAt)}</span>
+              </button>
+            </li>
           );
         })}
+      </ul>
+    ) : (
+      <p className="m-0 px-6 py-4 text-sm text-muted">No questions have been put to the council on this case yet.</p>
+    );
+  } else if (error) {
+    body = (
+      <p className="m-0 px-6 py-4 text-sm text-muted">
+        {isStatus(error, 404) ? "Earlier questions are not available yet." : `Could not load earlier questions: ${error.message}`}
+      </p>
+    );
+  } else {
+    body = (
+      <div className="px-6 py-4">
+        <Loading />
       </div>
-    </div>
+    );
+  }
+  return (
+    <section className={cx(card, "overflow-hidden")} aria-labelledby="ask-history">
+      <div className="border-b border-line-2 px-6 py-4">
+        <h3 id="ask-history" className="m-0 font-serif text-[15px] font-semibold">
+          Earlier questions on this case
+        </h3>
+      </div>
+      {body}
+    </section>
   );
 }

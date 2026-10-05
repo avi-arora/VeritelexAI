@@ -2,17 +2,27 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { CONNECTORS, COV, GROUND, ISSUES, TONE, type ConnectorId } from "@/lib/data";
+import type { IssueData, ToolsData } from "@/lib/api";
+import { CONNECTORS, COV, TONE, type ConnectorId } from "@/lib/data";
 import { useStore } from "@/lib/store";
 import { Badge, Dot, Monogram, btn, card, cx } from "../ui";
+import { ReportGate, useReport } from "./case-context";
 
 export function Grounding() {
-  const { conn } = useStore();
-  const [selected, setSelected] = useState<ConnectorId>("difc");
+  const { data: iss } = useReport("issues");
+  return <ReportGate section="tools">{(tools) => <GroundingBody tools={tools} issues={iss?.issues ?? []} />}</ReportGate>;
+}
 
-  const sources = CONNECTORS.filter((c) => (c.builtin || conn[c.id]) && GROUND[c.id]);
+function GroundingBody({ tools, issues: ISSUES }: { tools: ToolsData; issues: IssueData[] }) {
+  const { conn } = useStore();
+  const [selected, setSelected] = useState<ConnectorId>("google");
+  const GROUND = tools.sources as Partial<Record<ConnectorId, ToolsData["sources"][string]>>;
+
+  // Only connectors that are available, enabled and actually returned results for this case.
+  const sources = CONNECTORS.filter((c) => c.available && conn[c.id] && GROUND[c.id]);
   const sel = sources.find((c) => c.id === selected) ?? sources[0];
-  const detail = GROUND[sel.id];
+  if (!sel) return <div className={cx(card, "px-7 py-6 text-sm text-body-3")}>No grounding source is connected for this case.</div>;
+  const detail = GROUND[sel.id]!;
   const cols = `minmax(200px,1.6fr) repeat(${sources.length}, minmax(92px,1fr))`;
 
   return (
@@ -40,7 +50,7 @@ export function Grounding() {
             <span className="self-end px-5 py-3.5 text-[12.5px] font-medium text-muted">Legal issue</span>
             {sources.map((c) => {
               const on = c.id === sel.id;
-              const cov = GROUND[c.id].cov;
+              const cov = GROUND[c.id]!.cov;
               return (
                 <button
                   key={c.id}
@@ -51,7 +61,7 @@ export function Grounding() {
                   style={{ background: on ? "#eef3f8" : "transparent", borderColor: on ? "#245C86" : "transparent" }}
                 >
                   <Monogram m={c.m} c={c.mono} size={28} radius={7} fontSize={10.5} />
-                  <span className="text-center text-xs leading-[1.25] font-medium text-ink">{GROUND[c.id].short}</span>
+                  <span className="text-center text-xs leading-[1.25] font-medium text-ink">{GROUND[c.id]!.short}</span>
                   <span className="text-[11.5px] text-muted">{cov.filter((x) => x[0] !== "none").length} of {cov.length}</span>
                 </button>
               );
@@ -64,7 +74,7 @@ export function Grounding() {
                 <span className="text-sm leading-[1.45] font-medium text-ink">{iss.topic}</span>
               </div>
               {sources.map((c) => {
-                const [k, note] = GROUND[c.id].cov[i] ?? ["none", ""];
+                const [k, note] = GROUND[c.id]!.cov[i] ?? ["none", ""];
                 const t = TONE[COV[k][2]];
                 return (
                   <button

@@ -2,21 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { REPORT_CASE_ID } from "@/lib/data";
 import { cx } from "./ui";
-
-const REPORT = `/cases/${REPORT_CASE_ID}`;
 
 /** Dark "jump to" strip from the prototype, handy for reviewing every screen. */
 export function ProtoNav() {
   const path = usePathname();
-  const inReport = path.startsWith(REPORT);
   const links = [
     { href: "/login", label: "Login", on: path === "/login" },
-    { href: "/cases", label: "Cases", on: path === "/cases" },
+    { href: "/cases", label: "Cases", on: path.startsWith("/cases") },
     { href: "/upload", label: "Upload", on: path === "/upload" },
-    { href: `${REPORT}/background`, label: "Case details", on: inReport && !path.endsWith("/council") },
-    { href: `${REPORT}/council`, label: "Model council", on: inReport && path.endsWith("/council") },
     { href: "/settings/connectors", label: "Settings", on: path.startsWith("/settings") },
   ];
   return (

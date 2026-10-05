@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BASE_CASES, NEW_CASE, REPORT_CASE_ID, STATUS, type CaseSummary } from "@/lib/data";
-import { useStore } from "@/lib/store";
+import { ACTIVE, api, usePoll, type ApiCaseSummary } from "@/lib/api";
+import { STATUS } from "@/lib/data";
 import { Chip, Segmented, Spinner, btn, cx } from "./ui";
 
 type Scope = "active" | "past" | "all";
@@ -24,30 +24,18 @@ const STATUS_TABS: { k: Group; label: string }[] = [
 
 const COLS = "grid grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_110px_minmax(0,1.6fr)_120px] gap-5";
 
+type CaseSummary = ApiCaseSummary;
+
 const group = (c: CaseSummary): Exclude<Group, "all"> => (c.status === "ready" ? "ready" : c.status === "action" ? "action" : "progress");
 
 export function CasesList() {
-  const { newCase } = useStore();
+  // Poll quickly while any analysis is running, slowly otherwise.
+  const { data, error, loading } = usePoll(api.listCases, (d) => (d?.some((c) => ACTIVE.includes(c.status)) ? 4000 : 30000));
   const [q, setQ] = useState("");
   const [scope, setScope] = useState<Scope>("active");
   const [statusFilter, setStatusFilter] = useState<Group>("all");
 
-  const all: CaseSummary[] = [...BASE_CASES];
-  if (newCase) {
-    const { status, pct } = newCase;
-    all.unshift({
-      ...NEW_CASE,
-      isNew: true,
-      status,
-      pct,
-      updated: "Just now",
-      note:
-        status === "queued" ? "Waiting for a processing slot"
-        : status === "ingesting" ? `Reading documents · ${Math.round((NEW_CASE.totalPages * pct) / 100)} of ${NEW_CASE.totalPages} pages`
-        : status === "ai" ? "Building chronology, issues and mapping"
-        : "Report generated just now · 9 dated facts · 4 issues",
-    });
-  }
+  const all: CaseSummary[] = data ?? [];
 
   const needle = q.trim().toLowerCase();
   const searched = all
@@ -101,9 +89,16 @@ export function CasesList() {
             <span className="text-right">Updated</span>
           </div>
           {rows.map((c) => (
-            <CaseRow key={c.no} c={c} />
+            <CaseRow key={c.id} c={c} />
           ))}
-          {rows.length === 0 && <div className="px-6 py-12 text-center text-sm text-muted">No cases match this search.</div>}
+          {loading && !data && <div className="px-6 py-12 text-center text-sm text-muted">Loading cases…</div>}
+          {error && !data && <div className="px-6 py-12 text-center text-sm text-red">Could not load cases: {error.message}</div>}
+          {data && all.length === 0 && (
+            <div className="px-6 py-12 text-center text-sm text-muted">
+              No cases yet. <Link href="/upload">Upload documents</Link> to create the first one.
+            </div>
+          )}
+          {data && all.length > 0 && rows.length === 0 && <div className="px-6 py-12 text-center text-sm text-muted">No cases match this search.</div>}
         </div>
       </div>
     </div>
@@ -120,10 +115,10 @@ function CaseRow({ c }: { c: CaseSummary }) {
     : i < step ? "#7fa5c4" : i === step ? "#245C86" : "#ebe8e3",
   );
   const label = running && c.pct != null ? `${st.label} · ${c.pct}%` : st.label;
-  const cta = c.status === "ready" ? "Open report →" : c.status === "action" ? "Resolve →" : "View progress";
+  const cta = c.status === "ready" ? "Open report →" : c.status === "action" ? "Resolve →" : "View progress →";
   const ctaFg = c.status === "ready" ? "#245C86" : c.status === "action" ? "#8F6A1E" : "#9aa0a8";
-  // The prototype has one full report; every ready case opens it.
-  const href = c.status === "ready" ? `/cases/${REPORT_CASE_ID}/background` : c.status === "action" ? "/upload?step=2" : null;
+  // Ready cases open the report; others open the case, which shows live agent progress.
+  const href = c.status === "ready" ? `/cases/${c.id}/background` : c.status === "action" ? `/cases/${c.id}/docs` : `/cases/${c.id}/background`;
 
   const body = (
     <>

@@ -151,6 +151,10 @@ export type ChronoEntry = {
   side: "both" | "c" | "d";
   /** Index into MATRIX, or -1 for facts only one party pleads. */
   i: number;
+  /** From the API: number of decisions mapped to this fact. */
+  mapped?: number;
+  /** From the API: false when a record citation could not be verified. */
+  verified?: boolean;
 };
 
 const PARTY_ONLY: ChronoEntry[] = [
@@ -272,192 +276,29 @@ export const DOCS: { n: string; p: string; by: string; s: string; tone: Tone }[]
 
 export const SECTIONS = [
   { k: "background", g: "Core analysis", label: "Background", title: "Brief background of the matter", desc: "What the dispute is about, in plain terms, and where it stands.", src: ["Case record"] },
-  { k: "matrix", g: "Core analysis", label: "Dates and facts", star: true, title: "Summarised factual matrix", desc: "The key facts in date order, as each party pleads them and as the documents show them. The common chronology is grounded in the record and cites every source.", src: ["Particulars of Claim", "Defence", "Case record · 46 documents"] },
-  { k: "mapping", g: "Core analysis", label: "Mapped to decisions", star: true, title: "Facts mapped to decisions and orders", desc: "For each group of facts: the judgments and orders that deal with them, with the date of decision and a link to the text.", src: ["DIFC Courts Judgments", "Harvey", "SCC Online", "BAILII", "Case record"] },
+  { k: "matrix", g: "Core analysis", label: "Dates and facts", star: true, title: "Summarised factual matrix", desc: "The key facts in date order, as each party pleads them and as the documents show them. The common chronology is grounded in the record and cites every source.", src: ["Particulars of Claim", "Defence", "Case record"] },
+  // Pilot: external research is grounded with Google Search only (other connectors are disabled).
+  { k: "mapping", g: "Core analysis", label: "Mapped to decisions", star: true, title: "Facts mapped to decisions and orders", desc: "For each group of facts: the judgments and orders that deal with them, with the date of decision and a link to the text.", src: ["Google Search", "Case record"] },
   { k: "issues", g: "Core analysis", label: "Legal issues", star: true, title: "Legal issues involved", desc: "The questions the Court must answer, drawn from the statements of case and reconciled with orders already made.", src: ["Case record"] },
   { k: "subs", g: "Core analysis", label: "Parties’ submissions", title: "Parties’ submissions on each issue", desc: "Each side’s position on one issue at a time, summarised from the pleading or skeleton cited.", src: ["Case record"] },
-  { k: "tools", g: "Grounding", label: "Grounding sources", star: true, title: "Grounding", desc: "How each legal issue is covered by the sources the analysis was grounded in: court judgments, case-law databases, legal AI and web search.", src: ["Connected sources"] },
+  { k: "tools", g: "Grounding", label: "Grounding sources", star: true, title: "Grounding", desc: "How each legal issue is covered by the sources the analysis was grounded in: court judgments, case-law databases, legal AI and web search.", src: ["Google Search"] },
   { k: "gaps", g: "Grounding", label: "Beyond the sources", title: "What the research tools missed", desc: "Authorities, documents and inconsistencies the external research tools did not surface, found by VeriteLex in DIFC judgments, its citation graph and the case record.", src: ["DIFC Courts Judgments", "Citation graph", "Case record"] },
-  { k: "council", g: "Model council", label: "Council pre-analysis", star: true, title: "Council pre-analysis", desc: "When the report was generated, each model read the whole record independently. This shows where they agree and where they divide, issue by issue.", src: ["Case record", "DIFC Courts Judgments", "Harvey", "BAILII"] },
-  { k: "ask", g: "Model council", label: "Ask the council", star: true, title: "Ask the council", desc: "Put your own question about this case. Each model answers independently; you can also have them review each other, or set out the strongest case for each side.", src: ["Case record", "DIFC Courts Judgments", "Harvey", "BAILII", "Google Search"] },
+  { k: "council", g: "Model council", label: "Council pre-analysis", star: true, title: "Council pre-analysis", desc: "When the report was generated, each model read the whole record independently. This shows where they agree and where they divide, issue by issue.", src: ["Case record"] },
+  { k: "ask", g: "Model council", label: "Ask the council", star: true, title: "Ask the council", desc: "Put your own question about this case. Each model answers independently; you can also have them review each other, or set out the strongest case for each side.", src: ["Case record"] },
   { k: "questions", g: "Model council", label: "Questions for counsel", title: "Questions for counsel", desc: "Questions the council suggests putting to each party, each tied to the document that raises it and showing how many models raised it.", src: ["Case record"] },
   { k: "docs", g: "Record", label: "Documents", title: "Documents on file", desc: "Everything the analysis has read, and what is still outstanding under the Court’s orders.", src: ["Case record"] },
+  { k: "versions", g: "Record", label: "Analysis versions", title: "Analysis versions", desc: "Every run of the analysis is kept as a version and never overwritten. Open an earlier version, or run the council again on one.", src: [] },
 ] as const;
 
 export type SectionKey = (typeof SECTIONS)[number]["k"];
-
-/* ───────────── Models and council ───────────── */
-
-export type ModelId = "claude" | "gpt" | "gemini" | "llama" | "mistral" | "jais";
-
-export const MODELS: { id: ModelId; name: string; vendor: string; host: string; m: string; c: string; lat: string }[] = [
-  { id: "claude", name: "Claude Opus", vendor: "Anthropic", host: "Cloud · UAE region", m: "C", c: "#B4613E", lat: "avg 9 s" },
-  { id: "gpt", name: "GPT-5", vendor: "OpenAI", host: "Azure · UAE North", m: "G", c: "#2F6F5E", lat: "avg 11 s" },
-  { id: "gemini", name: "Gemini 2.5 Pro", vendor: "Google", host: "Google Cloud · Doha", m: "Ge", c: "#3B5BA5", lat: "avg 8 s" },
-  { id: "llama", name: "Llama 4 Maverick", vendor: "Meta · self-hosted", host: "On-premises · DIFC data centre", m: "L", c: "#4F5A66", lat: "avg 14 s" },
-  { id: "mistral", name: "Mistral Large", vendor: "Mistral AI", host: "Cloud · EU", m: "M", c: "#C26B1E", lat: "avg 10 s" },
-  { id: "jais", name: "Jais", vendor: "Inception · G42", host: "On-premises · UAE", m: "J", c: "#6B4F8A", lat: "avg 12 s" },
-];
-
-export type CiteStatus = "ok" | "warn" | "bad";
-export type Cite = { t: string; note: string; st: CiteStatus };
-export type Answer = { time: string; fact?: boolean; paras: string[]; cites: Cite[] };
-
-const ok = (t: string, note: string): Cite => ({ t, note, st: "ok" });
-const warn = (t: string, note: string): Cite => ({ t, note, st: "warn" });
-const bad = (t: string, note: string): Cite => ({ t, note, st: "bad" });
-
-export const CITE_ST: Record<CiteStatus, { icon: string; bg: string; noteFg: string }> = {
-  ok: { icon: "✓", bg: "#2E6B4F", noteFg: "#80878f" },
-  warn: { icon: "!", bg: "#B07A18", noteFg: "#8F6A1E" },
-  bad: { icon: "×", bg: "#9B3E35", noteFg: "#9B3E35" },
-};
-
-const ANSWERS: Record<ModelId, Answer> = {
-  claude: { time: "8.4 s", fact: true, paras: ["Yes, on authority binding this Court. Emirates Structural Works [2024] DIFC CA 007 holds that notice clauses framed as 'entitled … only if' are conditions precedent, and cl. 20.1 uses that wording.", "The decisive question is factual: when the Contractor became aware of the delay. The Defence says 11 Sep 2023; the Claimant's expert uses 04 Oct 2023. On the first date the notice is late; on the second it is in time."], cites: [ok("Emirates Structural Works [2024] DIFC CA 007", "Verified · DIFC Courts Judgments"), ok("Defence ¶55", "Verified · case record"), ok("Delay expert report ¶2.14", "Verified · case record")] },
-  gpt: { time: "11.2 s", fact: false, paras: ["Clause 20.1 is likely a condition precedent. Obrascon v Gibraltar [2014] EWHC 1028 (TCC) treats the FIDIC wording that way, and Emirates Structural Works [2024] DIFC CA 007 takes the same approach in the DIFC.", "The Claimant may argue that notice was waived by the Engineer's conduct, relying on Ridgeway Tower [2020] DIFC CFI 026."], cites: [ok("Obrascon v Gibraltar [2014] EWHC 1028 (TCC)", "Verified · Harvey, BAILII"), ok("Emirates Structural Works [2024] DIFC CA 007", "Verified · DIFC Courts Judgments"), warn("Ridgeway Tower [2020] DIFC CFI 026", "Doubted in Emirates Structural Works ¶52")] },
-  gemini: { time: "7.9 s", fact: false, paras: ["Emirates Structural Works [2024] DIFC CA 007 governs and treats the clause as a condition precedent.", "Time runs from when the Contractor ought reasonably to have been aware of the delay, consistent with Gulf Span Contracting v Al Noor Developments [2019] DIFC CFI 011."], cites: [ok("Emirates Structural Works [2024] DIFC CA 007", "Verified · DIFC Courts Judgments"), bad("Gulf Span Contracting v Al Noor [2019] DIFC CFI 011", "Not found in any connector")] },
-  llama: { time: "13.6 s", fact: true, paras: ["The clause is a condition precedent under Emirates Structural Works [2024] DIFC CA 007.", "The record gives two dates on which the Contractor may have become aware (11 Sep and 04 Oct 2023). The Court will need to decide which applies."], cites: [ok("Emirates Structural Works [2024] DIFC CA 007", "Verified · DIFC Courts Judgments"), ok("Reply ¶34", "Verified · case record")] },
-  mistral: { time: "9.8 s", fact: false, paras: ["Obrascon and Emirates Structural Works both support reading cl. 20.1 as a condition precedent.", "Nothing in the record supports reading the clause as directory only."], cites: [ok("Obrascon v Gibraltar [2014] EWHC 1028 (TCC)", "Verified · Harvey, BAILII"), ok("Emirates Structural Works [2024] DIFC CA 007", "Verified · DIFC Courts Judgments")] },
-  jais: { time: "12.1 s", fact: true, paras: ["The notice clause is a condition precedent: Emirates Structural Works [2024] DIFC CA 007.", "The date of awareness is disputed between the pleadings and the expert evidence."], cites: [ok("Emirates Structural Works [2024] DIFC CA 007", "Verified · DIFC Courts Judgments"), ok("Delay expert report ¶2.14", "Verified · case record")] },
-};
-
-const ANSWERS2: Record<ModelId, Answer> = {
-  claude: { time: "9.1 s", paras: ["Three documents bear directly on it: the design-team minutes for September 2023, the Contractor’s programme updates for weeks 36–40, and the Engineer’s programme analysis referred to in ENG-DET-014 ¶6.", "Only the first is in the bundle (Bundle B/97–103). The other two have not been disclosed."], cites: [ok("Bundle B/97–103", "Verified · case record"), ok("ENG-DET-014 ¶6", "Verified · case record")] },
-  gpt: { time: "10.4 s", paras: ["The Contractor’s own programme updates would show when the delay was first recorded. They have not been disclosed despite the deadline in Order 5.", "The 04 Oct 2023 date used by the Claimant’s expert appears to come from an email that is not in the bundle."], cites: [ok("Order 5 ¶2", "Verified · case record"), warn("Delay expert report ¶2.14", "Source email not in the bundle")] },
-  gemini: { time: "7.6 s", paras: ["The Engineer’s programme analysis is the most important missing document; it would show the Engineer’s own view of when the delay arose.", "Site diaries for September and October 2023 would also help."], cites: [ok("ENG-DET-014 ¶6", "Verified · case record"), ok("Bundle B index", "Verified · case record")] },
-  llama: { time: "12.9 s", paras: ["The Contractor’s programme updates and the site diaries for September and October 2023."], cites: [ok("Bundle B index", "Verified · case record")] },
-  mistral: { time: "9.2 s", paras: ["The September 2023 design-team minutes and the Contractor’s programme updates for weeks 36–40."], cites: [ok("Bundle B/97–103", "Verified · case record")] },
-  jais: { time: "11.5 s", paras: ["The Engineer’s programme analysis, and the 04 Oct 2023 email relied on by the Claimant’s expert."], cites: [warn("Delay expert report ¶2.14", "Source email not in the bundle")] },
-};
-
-const ANSWERS3: Record<ModelId, Answer> = {
-  claude: { time: "8.7 s", paras: ["Harbourline treated the 10% cap as one indicator of proportionality, not as decisive (¶44). Its absence here is relevant but does not by itself make the clause a penalty.", "Cavendish asks whether the clause is out of all proportion to a legitimate interest; the cap is evidence on that question, not a separate test."], cites: [ok("Harbourline [2022] DIFC CFI 018 ¶44", "Verified · DIFC Courts Judgments"), ok("Cavendish [2015] UKSC 67 ¶32", "Verified · BAILII")] },
-  gpt: { time: "11.0 s", paras: ["Yes, materially. Without a cap the total exposure is unbounded, which weighs towards a penalty under Cavendish.", "The Employer’s anchor-tenant evidence, not yet filed, would be needed to justify the rate."], cites: [ok("Cavendish [2015] UKSC 67 ¶32", "Verified · BAILII"), ok("Order 7 ¶3", "Verified · case record")] },
-  gemini: { time: "7.4 s", paras: ["It distinguishes Harbourline on the facts but not in principle; the test is still Cavendish."], cites: [ok("Harbourline [2022] DIFC CFI 018 ¶44", "Verified · DIFC Courts Judgments")] },
-  llama: { time: "13.2 s", paras: ["The cap mattered in Harbourline; its absence helps the Claimant but is not conclusive."], cites: [ok("Harbourline [2022] DIFC CFI 018 ¶44", "Verified · DIFC Courts Judgments")] },
-  mistral: { time: "9.9 s", paras: ["Indian law (Kailash Nath) would treat an uncapped rate differently, but that line does not apply in the DIFC."], cites: [warn("Kailash Nath (2015) 4 SCC 136", "Persuasive only · non-DIFC")] },
-  jais: { time: "11.8 s", paras: ["The absence of a cap is relevant to proportionality; the anchor-tenant evidence is the key missing material."], cites: [ok("Order 7 ¶3", "Verified · case record")] },
-};
-
-type Synth = { agree: string[]; differ: string[]; out: string[] };
-
-export type Preset = {
-  label: string;
-  q: string;
-  answers: Record<ModelId, Answer>;
-  when: string;
-  mode: string;
-  steel: { c: string[]; d: string[] };
-  review: { from: ModelId; to: ModelId; self?: boolean; t: string }[];
-  outcome: string;
-  synth: (ids: ModelId[], nm: (id: ModelId) => string) => Synth;
-};
-
-export const PRESETS: Preset[] = [
-  {
-    label: "Notice as a condition precedent",
-    q: "Is the cl. 20.1 notice a condition precedent to an extension of time, and which authorities govern? (Issue 3)",
-    answers: ANSWERS, when: "Today, 10:12", mode: "Independent",
-    steel: {
-      c: ["Awareness ran from 04 Oct 2023, the date the Claimant’s own expert uses; on that date the notice is in time.", "The 11 Sep 2023 email was a design comment, so it could not have made the Contractor aware of an instruction."],
-      d: ["Emirates Structural Works makes cl. 20.1 a condition precedent, and the Contractor knew of the change on 11 Sep 2023.", "The only authority for waiver, Ridgeway Tower, has been doubted by the Court of Appeal."],
-    },
-    review: [
-      { from: "claude", to: "gpt", t: "Ridgeway Tower was doubted in Emirates Structural Works ¶52; the waiver point needs other support." },
-      { from: "gpt", to: "gpt", self: true, t: "Accepts. Puts waiver as arguable only, with no authority." },
-      { from: "llama", to: "gemini", t: "Gulf Span Contracting cannot be found in any connected source." },
-      { from: "gemini", to: "gemini", self: true, t: "Withdraws the Gulf Span citation." },
-    ],
-    outcome: "After review, every model relies only on verified authority. The remaining difference is whether waiver is arguable at all.",
-    synth: (ids, nm) => {
-      const n = ids.length;
-      const f = ids.filter((id) => ANSWERS[id].fact).length;
-      const differ: string[] = [];
-      const out: string[] = [];
-      if (ids.includes("gpt")) differ.push(nm("gpt") + " relies on Ridgeway Tower for waiver of notice — doubted in Emirates Structural Works ¶52.");
-      if (ids.includes("mistral")) differ.push(nm("mistral") + " does not address the disputed date of awareness.");
-      if (ids.includes("gemini")) out.push(nm("gemini") + " cites Gulf Span Contracting v Al Noor [2019] DIFC CFI 011, which was not found in any connected source.");
-      return { agree: [`${n} of ${n} identify Emirates Structural Works [2024] DIFC CA 007 as the governing authority.`, `${f} of ${n} identify the date of awareness as the deciding factual dispute.`], differ, out };
-    },
-  },
-  {
-    label: "Documents on the awareness date",
-    q: "Which documents would resolve when the Contractor became aware of the delay to the façade works?",
-    answers: ANSWERS2, when: "Yesterday, 16:40", mode: "Independent",
-    steel: {
-      c: ["The missing programme analysis is the Engineer’s document; the gap counts against the Employer’s reliance on the refusal."],
-      d: ["The Contractor holds its own programme updates and has not disclosed them, despite Order 5."],
-    },
-    review: [
-      { from: "gpt", to: "claude", t: "Bundle B/97–103 are draft minutes; their status should be confirmed." },
-      { from: "claude", to: "claude", self: true, t: "Agrees, and marks them as unsigned drafts." },
-    ],
-    outcome: "After review, all models treat the September 2023 minutes as drafts and the two undisclosed documents as decisive.",
-    synth: (ids, nm) => {
-      const n = ids.length;
-      const w = ids.filter((id) => id === "gpt" || id === "jais").map(nm);
-      return {
-        agree: [`${n} of ${n} point to the Engineer’s programme analysis or the Contractor’s programme updates as decisive.`, "None of those documents has been disclosed; only the September 2023 design-team minutes are in the bundle."],
-        differ: w.length ? [w.join(" and ") + " note that the 04 Oct 2023 email used by the Claimant’s expert is not in the bundle; the others do not address it."] : [],
-        out: [],
-      };
-    },
-  },
-  {
-    label: "No cap on liquidated damages",
-    q: "Does the absence of a cap on liquidated damages distinguish Harbourline Marine v Vantage Estates? (Issue 5)",
-    answers: ANSWERS3, when: "29 Sep, 14:31", mode: "Debate",
-    steel: {
-      c: ["An uncapped USD 42,000 a day, set without any calculation, is the kind of clause Cavendish treats as out of all proportion."],
-      d: ["Harbourline upheld a comparable rate tied to financing exposure; the cap there was one factor among several."],
-    },
-    review: [
-      { from: "claude", to: "mistral", t: "Kailash Nath applies s. 74 of the Indian Contract Act and has no bearing on DIFC law." },
-      { from: "mistral", to: "mistral", self: true, t: "Accepts, and keeps it only as a comparison." },
-    ],
-    outcome: "After review, all models apply Cavendish; they differ only on how much weight the missing cap carries.",
-    synth: (ids, nm) => {
-      const n = ids.length;
-      const differ: string[] = [];
-      const out: string[] = [];
-      if (ids.includes("gpt")) differ.push(nm("gpt") + " treats the missing cap as weighing materially towards a penalty; the others treat it as relevant but not conclusive.");
-      if (ids.includes("mistral")) out.push(nm("mistral") + " relies on Kailash Nath (Indian law) — flagged as persuasive only.");
-      return { agree: [`${n} of ${n} treat Cavendish as the governing test.`], differ, out };
-    },
-  },
-];
-
-export const PRE: { n: number; topic: string; a: string; b: string; votes: Record<ModelId, "A" | "B"> }[] = [
-  { n: 1, topic: "Jurisdiction", a: "Already decided by Order 3; jurisdiction is established.", b: "", votes: { claude: "A", gpt: "A", gemini: "A", llama: "A", mistral: "A", jais: "A" } },
-  { n: 2, topic: "Variations", a: "Written confirmation is a precondition to valuation (Al Rafi).", b: "Waiver by the Employer’s conduct is arguable on the PC-13 payment.", votes: { claude: "A", gpt: "A", gemini: "B", llama: "A", mistral: "A", jais: "B" } },
-  { n: 3, topic: "Notice of delay", a: "Clause 20.1 is a condition precedent; the issue turns on the date of awareness.", b: "", votes: { claude: "A", gpt: "A", gemini: "A", llama: "A", mistral: "A", jais: "A" } },
-  { n: 4, topic: "Prevention", a: "Cannot be resolved on the documents; it depends on the delay experts.", b: "The façade redesign is an arguable act of prevention on the documents alone.", votes: { claude: "A", gpt: "B", gemini: "A", llama: "A", mistral: "B", jais: "A" } },
-  { n: 5, topic: "Liquidated damages", a: "Turns on the anchor-tenant evidence, which has not yet been filed.", b: "The absence of a cap is the main point distinguishing Harbourline.", votes: { claude: "A", gpt: "A", gemini: "B", llama: "A", mistral: "A", jais: "A" } },
-  { n: 6, topic: "Global claim", a: "Northcape applies; the outstanding Scott Schedule is central.", b: "The Walter Lilly approach remains open on these records.", votes: { claude: "A", gpt: "A", gemini: "A", llama: "B", mistral: "A", jais: "A" } },
-];
-
-export const FLAGGED = [
-  { t: "The two dates for the façade instruction (11 Sep and 04 Oct 2023) decide the notice point.", ref: "Reply ¶34 · expert report ¶2.14" },
-  { t: "The programme analysis behind the refused extension has not been disclosed.", ref: "ENG-DET-014 ¶6" },
-];
-
-export const COUNSEL_QS: { to: "Claimant" | "Defendant"; q: string; why: string; iss: number; ref: string; by: ModelId[] }[] = [
-  { to: "Claimant", q: "On what document do you say the oral instructions of 22 Feb 2024 were confirmed in writing under cl. 13.3.1?", why: "No counter-signed minutes or written confirmation is in Bundle B.", iss: 2, ref: "Bundle B/338", by: ["claude", "gpt", "gemini", "llama", "mistral", "jais"] },
-  { to: "Claimant", q: "What is the source of the 04 Oct 2023 awareness date used by your delay expert?", why: "The Reply uses 11 Sep 2023; the email the expert relies on is not in the bundle.", iss: 3, ref: "Expert report ¶2.14", by: ["claude", "gpt", "jais", "llama"] },
-  { to: "Claimant", q: "How is the USD 11.60m prolongation claim divided between VO-07 and the alleged prevention?", why: "Order 5 required a Scott Schedule by 14 Aug 2026; it is still outstanding.", iss: 6, ref: "Order 5 ¶4", by: ["claude", "gemini", "mistral"] },
-  { to: "Defendant", q: "What evidence from the date of the contract supports USD 42,000 a day as tied to a legitimate interest?", why: "The anchor-tenant agreements are referred to but have not been filed.", iss: 5, ref: "Order 7 ¶3", by: ["claude", "gpt", "gemini", "jais", "mistral"] },
-  { to: "Defendant", q: "Why was the programme analysis referred to in ENG-DET-014 not disclosed?", why: "The refusal of an extension relies on it at ¶6.", iss: 3, ref: "ENG-DET-014 ¶6", by: ["gpt", "gemini", "llama", "jais"] },
-  { to: "Defendant", q: "On what basis are liquidated damages claimed for the period after termination on 09 Sep 2025?", why: "The deduction schedule runs to 30 Nov 2025 without explanation.", iss: 5, ref: "Bundle C/118", by: ["claude", "llama"] },
-];
 
 /* ───────────── Settings ───────────── */
 
 export type ConnectorId = "difc" | "google" | "bing" | "harvey" | "scc" | "bailii" | "westlaw" | "lexis" | "vlex" | "manupatra";
 
-export const CONNECTORS: { id: ConnectorId; name: string; by: string; m: string; mono: string; desc: string; builtin?: boolean }[] = [
-  { id: "difc", name: "DIFC Courts Judgments", by: "DIFC Courts", m: "DC", mono: "#10202e", desc: "Every published CFI, Court of Appeal, TCD, Arbitration, DEC and SCT judgment and order.", builtin: true },
-  { id: "google", name: "Google Search", by: "Google", m: "G", mono: "#3B5BA5", desc: "Web grounding for court notices, practice directions and public filings." },
+export const CONNECTORS: { id: ConnectorId; name: string; by: string; m: string; mono: string; desc: string; builtin?: boolean; available?: boolean }[] = [
+  { id: "difc", name: "DIFC Courts Judgments", by: "DIFC Courts", m: "DC", mono: "#10202e", desc: "Every published CFI, Court of Appeal, TCD, Arbitration, DEC and SCT judgment and order." },
+  { id: "google", name: "Google Search", by: "Google", m: "G", mono: "#3B5BA5", desc: "Web grounding for court notices, practice directions and public filings.", available: true },
   { id: "bing", name: "Bing Search", by: "Microsoft", m: "Bi", mono: "#2C7A7B", desc: "Web grounding that cross-checks Google results for court notices and public filings." },
   { id: "harvey", name: "Harvey", by: "Harvey AI", m: "H", mono: "#1a1d21", desc: "Legal research memos across common-law jurisdictions." },
   { id: "scc", name: "SCC Online", by: "Eastern Book Company", m: "SCC", mono: "#8A2B2B", desc: "Indian and international case law, statutes and commentary." },

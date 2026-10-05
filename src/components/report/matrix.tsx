@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { CHRONOLOGY, TONE, mapCount, type ChronoEntry, type Tone } from "@/lib/data";
+import { TONE, type ChronoEntry, type Tone } from "@/lib/data";
 import { Badge, Dot, GroundTags, Segmented, card, cx } from "../ui";
+import { ReportGate } from "./case-context";
 
 type View = "side" | "c" | "d" | "common";
 
@@ -23,9 +24,13 @@ const VIEW_NOTE: Record<View, [string, string]> = {
 };
 
 export function Matrix() {
+  return <ReportGate section="matrix">{(m) => <MatrixBody chronology={m.entries} />}</ReportGate>;
+}
+
+function MatrixBody({ chronology }: { chronology: ChronoEntry[] }) {
   const [view, setView] = useState<View>("side");
   const [disputedOnly, setDisputedOnly] = useState(false);
-  const rows = CHRONOLOGY.filter((r) => !disputedOnly || r.tone === "red" || r.side !== "both");
+  const rows = chronology.filter((r) => !disputedOnly || r.tone === "red" || r.side !== "both");
   const [note, dot] = VIEW_NOTE[view];
 
   return (
@@ -73,7 +78,7 @@ function SideBySide({ rows }: { rows: ChronoEntry[] }) {
         <ColHead color="#2E6B4F" className="bg-[#f1f6f2]">Common · AI-grounded</ColHead>
       </div>
       {rows.map((r) => (
-        <div key={r.d + r.t} className={cx(SIDE_COLS, "border-b border-line-3")}>
+        <div key={`${r.i}-${r.d}-${r.t}`} className={cx(SIDE_COLS, "border-b border-line-3")}>
           <div className="flex flex-col gap-1.5 p-[18px]">
             <span className="font-mono text-[13.5px] font-medium text-ink">{r.d}</span>
             <span className="text-[12.5px] leading-[1.4] text-muted">{issueText(r.iss)}</span>
@@ -126,7 +131,7 @@ function PartyView({ rows, party }: { rows: ChronoEntry[]; party: "c" | "d" }) {
             : r.tone === "blue" || r.tone === "amber" ? ["Court record", "blue"]
             : ["Accepted by the other side", "green"];
           return (
-            <div key={r.d + r.t} className="grid min-w-[700px] grid-cols-[120px_minmax(0,1fr)_210px] items-start gap-5 border-b border-line-3 px-6 py-5">
+            <div key={`${r.i}-${r.d}-${r.t}`} className="grid min-w-[700px] grid-cols-[120px_minmax(0,1fr)_210px] items-start gap-5 border-b border-line-3 px-6 py-5">
               <span className="pt-px font-mono text-sm font-medium text-ink">{r.d}</span>
               <div className="flex min-w-0 flex-col gap-1.5 border-l-[3px] pl-3.5" style={{ borderColor: isC ? "#245C86" : "#8a8378" }}>
                 <span className="font-serif text-base leading-[1.4] font-semibold text-ink">{r.t}</span>
@@ -149,10 +154,10 @@ function CommonView({ rows }: { rows: ChronoEntry[] }) {
   return (
     <>
       {rows.map((r) => {
-        const n = r.i >= 0 ? mapCount(r.i) : 0;
+        const n = r.mapped ?? 0;
         const fg = TONE[r.tone].fg;
         return (
-          <div key={r.d + r.t} className="grid min-w-[640px] grid-cols-[120px_20px_minmax(0,1fr)_150px] items-start gap-4 border-b border-line-3 px-6 py-5">
+          <div key={`${r.i}-${r.d}-${r.t}`} className="grid min-w-[640px] grid-cols-[120px_20px_minmax(0,1fr)_150px] items-start gap-4 border-b border-line-3 px-6 py-5">
             <span className="pt-px font-mono text-sm font-medium text-ink">{r.d}</span>
             <Dot color={fg} style={{ marginTop: 6 }} />
             <div className="flex min-w-0 flex-col gap-[7px]">

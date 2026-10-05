@@ -1,13 +1,10 @@
 import { notFound } from "next/navigation";
 import { ReportSection } from "@/components/report/report-section";
-import { REPORT_CASE_ID, SECTIONS, type SectionKey } from "@/lib/data";
+import { SECTIONS, type SectionKey } from "@/lib/data";
 
-export function generateStaticParams() {
-  return SECTIONS.map((s) => ({ caseId: REPORT_CASE_ID, section: s.k }));
-}
-
+// Case ids come from Firestore, so sections render on demand (no static params).
 export default async function SectionPage({ params }: PageProps<"/cases/[caseId]/[section]">) {
-  const { caseId, section } = await params;
-  if (caseId !== REPORT_CASE_ID || !SECTIONS.some((s) => s.k === section)) notFound();
+  const { section } = await params;
+  if (!SECTIONS.some((s) => s.k === section)) notFound();
   return <ReportSection section={section as SectionKey} />;
 }
